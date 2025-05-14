@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Türkçe Wordle Oyunu</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <h1>Türkçe Wordle</h1>
+
+        <!-- Başlangıç Ekranı (Kelime Uzunluğu Seçimi) -->
+        <div id="initial-setup-screen">
+            <h2>Kelime Uzunluğunu Seçin:</h2>
+            <div class="length-options">
+                <!-- JavaScript ile doldurulacak -->
+            </div>
+            <button id="start-selected-length-game-btn">Bu Uzunlukla Başla</button>
+        </div>
+
+        <!-- Oyun Alanı (Başlangıçta Gizli) -->
+        <div id="game-area" style="display: none;">
+            <div id="game-info">
+                <h2 id="word-length-display">X Harfli Kelime</h2>
+                <p id="total-words-display">Sözlük Yükleniyor...</p>
+            </div>
+            <div class="grid-container">
+                <!-- JavaScript ile doldurulacak tahmin kutuları -->
+            </div>
+            <div id="message-popup" class="message-container">Mesaj</div>
+            <div class="keyboard-container">
+                <!-- JavaScript ile doldurulacak ekran klavyesi -->
+            </div>
+        </div>
+    </div>
+
+    <div id="end-game-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Oyun Bitti!</h2>
+            <p id="modal-message">Mesajınız burada.</p>
+            <p>Doğru Kelime: <strong id="modal-correct-word"></strong></p>
+            <button id="modal-new-game-btn">Yeni Oyun (Uzunluk Seç)</button>
+            <button id="modal-close-btn">Kapat</button>
+        </div>
+    </div>
+
+    <script src="script.js" defer></script>
+</body>
+</html>
