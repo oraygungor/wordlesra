@@ -1,19 +1,20 @@
 // script.js
 
 const WORD_LIST_FILENAME = "sozluk.txt";
-let currentWordLength = 5;
+let currentWordLength = 5; // Varsayılan, initializeGame'de güncellenecek
 const MAX_TRIES = 6;
 const VALID_GAME_LENGTHS = [4, 5, 6, 7, 8, 9];
 
 let dictionary = [];
 let validWordsOfLength = [];
-let targetWord = "";
+let targetWord = ""; // Orijinal, çözülmüş hedef kelime
+let encodedTargetWord = ""; // Base64 ile kodlanmış hedef kelime
 let currentRow = 0;
 let currentCol = 0;
 let gameOver = false;
 let gameWon = false;
 let isProcessing = false;
-let selectedGameLength = 0;
+let selectedGameLength = 0; // Kullanıcının seçtiği uzunluk
 
 // DOM Elementleri
 let initialSetupScreen, lengthOptionsContainer, startSelectedLengthGameBtn, gameArea,
@@ -27,20 +28,47 @@ const keyboardLayout = [
     ["ENTER", "ZCVBNMÖÇ", "BACKSPACE"]
 ];
 
+// --- Yardımcı Fonksiyonlar ---
 function turkishLower(s) { if (!s) return ""; return s.replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase(); }
 function turkishUpper(s) { if (!s) return ""; return s.replace(/i/g, 'İ').replace(/ı/g, 'I').toUpperCase(); }
 function getTodayDateString() { const today = new Date(); return `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`; }
 
+function encodeToBase64(str) {
+    try {
+        // String'i UTF-8 byte dizisine çevir, sonra Base64'e kodla
+        // Önce encodeURIComponent ile tüm özel karakterleri %xx formatına çevir,
+        // sonra unescape ile bu %xx'leri karakterlere (tek byte'lık) dönüştür,
+        // btoa bu tek byte'lık karakter dizisini Base64'e çevirebilir.
+        return btoa(unescape(encodeURIComponent(str)));
+    } catch (e) {
+        console.error("Base64 encode hatası:", e, "String:", str);
+        return ""; // Hata durumunda boş string dön
+    }
+}
+
+function decodeFromBase64(encodedStr) {
+    try {
+        // Base64'ü çöz, sonra UTF-8 string'ine çevir
+        // atob Base64'ü tek byte'lık karakterlere çözer.
+        // escape bu karakterleri %xx formatına (veya bazılarını doğrudan karaktere) çevirir.
+        // decodeURIComponent bu %xx formatını orijinal UTF-8 karakterlerine çevirir.
+        return decodeURIComponent(escape(atob(encodedStr)));
+    } catch (e) {
+        console.error("Base64 decode hatası:", e, "Encoded String:", encodedStr);
+        return ""; // Hata durumunda boş string dön
+    }
+}
+// --- localStorage Fonksiyonları ---
 function saveGameState(gameState) {
     try {
         const key = `wordleGameState_${getTodayDateString()}_len${currentWordLength}`;
         localStorage.setItem(key, JSON.stringify(gameState));
-        console.log("Oyun durumu kaydedildi:", key, gameState);
+        console.log("Oyun durumu kaydedildi (orijinal kelime ile):", key);
     } catch (e) { console.error("localStorage'a kaydetme hatası:", e); if (messagePopup) showMessage("Oyun durumu kaydedilemedi.", 3000, true); }
 }
 function loadGameState() {
     try {
-        if (!selectedGameLength) return null;
+        if (!selectedGameLength) return null; // selectedGameLength'e göre yükle
         const key = `wordleGameState_${getTodayDateString()}_len${selectedGameLength}`;
         const savedStateString = localStorage.getItem(key);
         return savedStateString ? JSON.parse(savedStateString) : null;
@@ -52,11 +80,12 @@ function clearOldGameStates() {
         const key = localStorage.key(i);
         if (key && key.startsWith("wordleGameState_") && !key.startsWith(`wordleGameState_${todayStr}`)) {
             localStorage.removeItem(key);
-            console.log("Eski oyun durumu silindi:", key);
+            // console.log("Eski oyun durumu silindi:", key);
         }
     }
 }
 
+// --- Sözlük Yükleme ve Kurulum ---
 async function loadDictionary() {
     console.log("loadDictionary çağrıldı.");
     if (totalWordsDisplay) totalWordsDisplay.textContent = `Sözlük (${WORD_LIST_FILENAME}) yükleniyor...`;
@@ -77,6 +106,8 @@ async function loadDictionary() {
             console.log("Sözlük yüklendi:", dictionary.length, "kelime.");
             if (totalWordsDisplay) totalWordsDisplay.textContent = `Sözlükte ${dictionary.length} kelime var. Uzunluk seçin.`;
             populateLengthOptions();
+            // Başlat butonu sadece bir uzunluk seçiliyse aktif olmalı
+            if (startSelectedLengthGameBtn) startSelectedLengthGameBtn.disabled = !selectedGameLength;
         } else {
             throw new Error("Sözlük boş veya geçerli kelime bulunamadı.");
         }
@@ -102,35 +133,36 @@ function populateLengthOptions() {
 }
 
 function selectGameLength(length) {
-    selectedGameLength = length;
+    selectedGameLength = length; // Sadece seçimi güncelle, currentWordLength initializeGame'de
     document.querySelectorAll('.length-options button').forEach(btn => {
         btn.classList.remove('selected');
         if (parseInt(btn.dataset.length) === length) {
             btn.classList.add('selected');
         }
     });
-    console.log("Seçilen kelime uzunluğu:", selectedGameLength);
+    console.log("selectGameLength - Seçilen kelime uzunluğu:", selectedGameLength);
     if (startSelectedLengthGameBtn) {
         startSelectedLengthGameBtn.disabled = !(dictionary.length > 0 && selectedGameLength > 0);
     }
 }
 
-function selectWordOfTheDay(previousTargetWord = null) {
-    if (!currentWordLength) {
-        console.error("selectWordOfTheDay: Kelime uzunluğu ayarlanmamış!");
+function selectWordOfTheDay(lengthForWord, previousTargetWord = null) {
+    console.log("selectWordOfTheDay çağrıldı. Uzunluk:", lengthForWord);
+    if (!lengthForWord) {
+        console.error("selectWordOfTheDay: Geçerli bir uzunluk (lengthForWord) sağlanmadı!");
         return "";
     }
-    validWordsOfLength = dictionary.filter(word => word.length === currentWordLength);
+    validWordsOfLength = dictionary.filter(word => word.length === lengthForWord);
 
     if (validWordsOfLength.length === 0) {
-        if (messagePopup) showMessage(`Bu uzunlukta (${currentWordLength}) kelime bulunamadı!`, 5000, true);
-        if (wordLengthDisplay) wordLengthDisplay.textContent = `${currentWordLength} Harfli Kelime (HATA!)`;
-        if (totalWordsDisplay) totalWordsDisplay.textContent = `Sözlük: ${dictionary.length} | Bu Uzunlukta: 0`;
-        gameOver = true;
+        console.error(`selectWordOfTheDay: Bu uzunlukta (${lengthForWord}) kelime bulunamadı!`);
+        if (messagePopup) showMessage(`Bu uzunlukta (${lengthForWord}) kelime bulunamadı!`, 5000, true);
+        // Diğer UI güncellemeleri initializeGame içinde yapılabilir
         return "";
     }
 
-    if (wordLengthDisplay) wordLengthDisplay.textContent = `${currentWordLength} Harfli Kelime`;
+    console.log(`selectWordOfTheDay: ${lengthForWord} uzunluğunda ${validWordsOfLength.length} kelime bulundu.`);
+    if (wordLengthDisplay) wordLengthDisplay.textContent = `${lengthForWord} Harfli Kelime`;
     if (totalWordsDisplay) totalWordsDisplay.textContent = `Sözlük: ${dictionary.length} | Bu Uzunlukta: ${validWordsOfLength.length}`;
 
     const now = new Date();
@@ -138,13 +170,32 @@ function selectWordOfTheDay(previousTargetWord = null) {
     let newTargetWord;
     let attempts = 0;
     do {
-        const index = (dayOfYear + now.getFullYear() + attempts + currentWordLength) % validWordsOfLength.length;
+        const index = (dayOfYear + now.getFullYear() + attempts + lengthForWord) % validWordsOfLength.length;
         newTargetWord = validWordsOfLength[index];
         attempts++;
     } while (newTargetWord === previousTargetWord && validWordsOfLength.length > 1 && attempts < validWordsOfLength.length * 2);
-    return newTargetWord;
+
+    if (newTargetWord) {
+        targetWord = newTargetWord; // Orijinal kelimeyi global değişkene ata
+        encodedTargetWord = encodeToBase64(targetWord); // Ve kodlanmış halini de ata
+        if (!encodedTargetWord) {
+            console.error("selectWordOfTheDay: Hedef kelime seçildi ancak kodlanamadı:", targetWord);
+            showMessage("Oyun kelimesi hazırlanırken bir hata oluştu.", 3000, true);
+            targetWord = ""; // Hata durumunda temizle
+            return "";
+        }
+        // console.log("selectWordOfTheDay - Günün Kelimesi (Orijinal - Debug için):", targetWord); // <<-- CANLIDA KALDIRIN
+        console.log("selectWordOfTheDay - Günün Kodlanmış Kelimesi (Base64):", encodedTargetWord);
+    } else {
+        console.error("selectWordOfTheDay: newTargetWord seçilemedi.");
+        targetWord = "";
+        encodedTargetWord = "";
+        return "";
+    }
+    return targetWord; // Fonksiyon orijinal kelimeyi döner
 }
 
+// --- Grid ve Klavye Oluşturma ---
 function createGrid() {
     if (!gridContainer) { console.error("createGrid: gridContainer bulunamadı!"); return; }
     gridContainer.innerHTML = "";
@@ -152,8 +203,8 @@ function createGrid() {
     for (let r = 0; r < MAX_TRIES; r++) {
         const rowDiv = document.createElement("div");
         rowDiv.classList.add("grid-row");
-        rowDiv.style.gridTemplateColumns = `repeat(${currentWordLength}, 1fr)`;
-        for (let c = 0; c < currentWordLength; c++) {
+        rowDiv.style.gridTemplateColumns = `repeat(${currentWordLength}, 1fr)`; // currentWordLength kullanılmalı
+        for (let c = 0; c < currentWordLength; c++) { // currentWordLength kullanılmalı
             const tile = document.createElement("div");
             tile.classList.add("tile");
             tile.id = `tile-${r}-${c}`;
@@ -194,11 +245,15 @@ function createKeyboard() {
         });
         keyboardContainer.appendChild(rowDiv);
     });
-    console.log("Klavye oluşturuldu.");
+    // console.log("Klavye oluşturuldu.");
 }
 
+// --- Oyun Mantığı Fonksiyonları ---
 function handleKeyPress(key) {
+    if (initialSetupScreen && getComputedStyle(initialSetupScreen).display !== "none") return;
+    if (endGameModal && getComputedStyle(endGameModal).display !== "none") return;
     if (gameOver || isProcessing) return;
+
     const pressedKey = turkishUpper(key);
 
     if (pressedKey === "ENTER") {
@@ -237,6 +292,11 @@ async function submitGuess() {
     if (currentCol !== currentWordLength) {
         showMessage("Kelime yeterince uzun değil!", 2000, true);
         shakeCurrentRow();
+        return;
+    }
+
+    if (!encodedTargetWord || !targetWord) {
+        showMessage("Hedef kelime yüklenemedi. Lütfen sayfayı yenileyin.", 3000, true);
         return;
     }
 
@@ -293,9 +353,9 @@ function shakeCurrentRow() {
     }, { once: true });
 }
 
-function evaluateGuess(guess, target) {
-    const feedback = Array(target.length).fill(null);
-    const targetChars = target.split('');
+function evaluateGuess(guess, originalTarget) {
+    const feedback = Array(originalTarget.length).fill(null);
+    const targetChars = originalTarget.split('');
     const guessChars = guess.split('');
     const targetCharCounts = {};
 
@@ -306,7 +366,7 @@ function evaluateGuess(guess, target) {
     for (let i = 0; i < guessChars.length; i++) {
         if (guessChars[i] === targetChars[i]) {
             feedback[i] = 'correct';
-            targetCharCounts[guessChars[i]]--;
+            if (targetCharCounts[guessChars[i]]) targetCharCounts[guessChars[i]]--;
         }
     }
 
@@ -327,7 +387,7 @@ async function applyFeedbackToGrid(rowIdx, feedback, guessWord) {
     if (!gridContainer || !gridContainer.children[rowIdx]) return;
     const rowTiles = gridContainer.children[rowIdx].children;
 
-    const baseFlipDuration = 500; // CSS'deki animation-duration (ms)
+    const baseFlipDuration = 500;
     let delayBetweenTiles = 100;
 
     if (currentWordLength >= 7) delayBetweenTiles = 75;
@@ -376,7 +436,7 @@ function updateKeyboardColors(guess, feedback) {
                 keyButton.classList.remove('absent');
                 keyButton.classList.add('present');
                 keyButton.dataset.status = 'present';
-            } else if (status === 'absent' && !currentStatus) {
+            } else if (status === 'absent' && !currentStatus) { // Sadece daha iyi bir status yoksa absent yap
                 keyButton.classList.add('absent');
                 keyButton.dataset.status = 'absent';
             }
@@ -387,24 +447,25 @@ function updateKeyboardColors(guess, feedback) {
 function getGuessesWithFeedback() {
     const guesses = [];
     if (!gridContainer) return guesses;
-    for (let r = 0; r < (gameOver ? currentRow + 1 : currentRow) ; r++) {
+    // currentRow o anki aktif satır, (gameOver ? currentRow + 1 : currentRow) doğru
+    for (let r = 0; r < (gameOver ? currentRow + 1 : currentRow); r++) {
         if (!gridContainer.children[r]) continue;
         const rowTiles = gridContainer.children[r].children;
         let word = "";
-        const feedback = [];
+        const feedbackArr = [];
         let rowCompleteAndEvaluated = true;
         for (let c = 0; c < currentWordLength; c++) {
             const tile = rowTiles[c];
             if (tile && tile.textContent) {
                 word += turkishLower(tile.textContent);
-                if (tile.classList.contains('correct')) feedback.push('correct');
-                else if (tile.classList.contains('present')) feedback.push('present');
-                else if (tile.classList.contains('absent')) feedback.push('absent');
+                if (tile.classList.contains('correct')) feedbackArr.push('correct');
+                else if (tile.classList.contains('present')) feedbackArr.push('present');
+                else if (tile.classList.contains('absent')) feedbackArr.push('absent');
                 else { rowCompleteAndEvaluated = false; break; }
             } else { rowCompleteAndEvaluated = false; break; }
         }
         if (rowCompleteAndEvaluated && word.length === currentWordLength) {
-            guesses.push({ word, feedback });
+            guesses.push({ word, feedback: feedbackArr });
         }
     }
     return guesses;
@@ -428,113 +489,154 @@ function showEndGameModal(won, guessesData) {
         modalTitle.textContent = "Oyun Bitti!";
         modalMessage.textContent = "Bu sefer olmadı. Denemeye devam!";
     }
-    modalCorrectWord.textContent = turkishUpper(targetWord);
+    modalCorrectWord.textContent = turkishUpper(targetWord); // Orijinal kelimeyi göster
     endGameModal.style.display = "flex";
 }
 
+
+// --- Oyun Başlatma ve Kurulum ---
 async function initializeGame() {
-    console.log("initializeGame çağrıldı. Seçilen Uzunluk:", selectedGameLength);
+    console.log(">>> initializeGame çağrıldı. selectedGameLength:", selectedGameLength);
+
     if (!selectedGameLength || !VALID_GAME_LENGTHS.includes(selectedGameLength)) {
-        console.error("initializeGame: Geçerli bir kelime uzunluğu seçilmedi.");
+        console.error("initializeGame HATA: Geçerli bir kelime uzunluğu seçilmedi.");
         if (messagePopup) showMessage("Lütfen geçerli bir kelime uzunluğu seçin.", 3000, true);
         if (initialSetupScreen) initialSetupScreen.style.display = 'flex';
         if (gameArea) gameArea.style.display = 'none';
         return;
     }
-    currentWordLength = selectedGameLength;
+    console.log("initializeGame Adım 1: Uzunluk kontrolü başarılı.");
+
+    currentWordLength = selectedGameLength; // Oyunun aktif kelime uzunluğunu ayarla
+    console.log("initializeGame Adım 2: currentWordLength ayarlandı:", currentWordLength);
 
     gameOver = false; gameWon = false;
     currentRow = 0; currentCol = 0;
     isProcessing = false;
+    targetWord = ""; // Her başlangıçta temizle
+    encodedTargetWord = ""; // Her başlangıçta temizle
+
     clearOldGameStates();
+    console.log("initializeGame Adım 3: Oyun durumu sıfırlandı, eski durumlar temizlendi.");
 
     if (dictionary.length === 0) {
-        console.error("initializeGame: Sözlük yüklenemedi veya boş.");
+        console.error("initializeGame HATA: Sözlük yüklenemedi veya boş.");
         showMessage("Oyun başlatılamadı: Sözlük hatası.", 3000, true);
         if (initialSetupScreen) initialSetupScreen.style.display = 'flex';
         if (gameArea) gameArea.style.display = 'none';
         if (startSelectedLengthGameBtn) startSelectedLengthGameBtn.disabled = true;
         return;
     }
+    console.log("initializeGame Adım 4: Sözlük var kontrolü başarılı.");
 
     validWordsOfLength = dictionary.filter(word => word.length === currentWordLength);
-    if (validWordsOfLength.length === 0 && currentWordLength > 0) {
-        console.error(`initializeGame: Seçilen uzunlukta (${currentWordLength}) kelime bulunamadı.`);
+    if (validWordsOfLength.length === 0) {
+        console.error(`initializeGame HATA: Seçilen uzunlukta (${currentWordLength}) kelime bulunamadı.`);
         showMessage(`Seçilen uzunlukta (${currentWordLength}) kelime bulunamadı. Farklı bir uzunluk deneyin.`, 4000, true);
         if (initialSetupScreen) initialSetupScreen.style.display = 'flex';
         if (gameArea) gameArea.style.display = 'none';
         return;
     }
+    console.log(`initializeGame Adım 5: ${currentWordLength} uzunluğunda ${validWordsOfLength.length} kelime bulundu.`);
 
-    const savedGameState = loadGameState();
+    const savedGameState = loadGameState(); // selectedGameLength'e göre yükler
     let restoreSuccess = false;
 
     if (savedGameState && savedGameState.targetWord && savedGameState.guesses &&
         savedGameState.date === getTodayDateString() && savedGameState.length === currentWordLength) {
-        console.log(`Bugüne ait ${currentWordLength} harfli kaydedilmiş oyun durumu yükleniyor:`, savedGameState);
+        console.log(`initializeGame Adım 6: Bugüne ait ${currentWordLength} harfli kaydedilmiş oyun durumu yükleniyor.`);
+        
         targetWord = turkishLower(savedGameState.targetWord);
+        encodedTargetWord = encodeToBase64(targetWord);
 
-        if (wordLengthDisplay) wordLengthDisplay.textContent = `${currentWordLength} Harfli Kelime`;
-        if (totalWordsDisplay) totalWordsDisplay.textContent = `Sözlük: ${dictionary.length} | Bu Uzunlukta: ${validWordsOfLength.length}`;
+        if (!encodedTargetWord) {
+            console.error("initializeGame HATA: Kaydedilmiş oyun yüklenirken kelime kodlanamadı.");
+            showMessage("Kaydedilmiş oyun yüklenirken bir hata oluştu. Yeni oyun başlatılıyor.", 4000, true);
+            // restoreSuccess false kalacak ve yeni oyun başlatılacak
+        } else {
+            console.log("initializeGame (load) - Kodlanmış Kelime:", encodedTargetWord);
+            if (wordLengthDisplay) wordLengthDisplay.textContent = `${currentWordLength} Harfli Kelime`;
+            if (totalWordsDisplay) totalWordsDisplay.textContent = `Sözlük: ${dictionary.length} | Bu Uzunlukta: ${validWordsOfLength.length}`;
 
-        createGrid(); createKeyboard();
+            createGrid(); createKeyboard();
 
-        savedGameState.guesses.forEach((guessData, r) => {
-            if (gridContainer && gridContainer.children[r]) {
-                const rowTiles = gridContainer.children[r].children;
-                for (let c = 0; c < currentWordLength; c++) {
-                    if (rowTiles[c] && guessData.word[c]) {
-                        rowTiles[c].textContent = turkishUpper(guessData.word[c]);
-                        rowTiles[c].classList.remove('filled');
-                        rowTiles[c].classList.add(guessData.feedback[c]);
-                        if (guessData.word[c]) rowTiles[c].classList.add('filled');
+            savedGameState.guesses.forEach((guessData, r) => {
+                if (gridContainer && gridContainer.children[r]) {
+                    const rowTiles = gridContainer.children[r].children;
+                    for (let c = 0; c < currentWordLength; c++) {
+                        if (rowTiles[c] && guessData.word[c]) {
+                            rowTiles[c].textContent = turkishUpper(guessData.word[c]);
+                            rowTiles[c].classList.remove('filled');
+                            rowTiles[c].classList.add(guessData.feedback[c]);
+                            if (guessData.word[c]) rowTiles[c].classList.add('filled');
+                        }
                     }
                 }
-            }
-            updateKeyboardColors(guessData.word, guessData.feedback);
-        });
-        currentRow = savedGameState.currentRow;
-        currentCol = 0;
-        gameOver = savedGameState.won || savedGameState.lost;
-        gameWon = savedGameState.won;
+            });
+            savedGameState.guesses.forEach(guessData => { // Klavye renklerini güncelle
+                updateKeyboardColors(guessData.word, guessData.feedback);
+            });
 
-        if (gameOver) {
-            showEndGameModal(gameWon, savedGameState.guesses);
+            currentRow = savedGameState.currentRow;
+            currentCol = 0;
+            gameOver = savedGameState.won || savedGameState.lost;
+            gameWon = savedGameState.won;
+
+            if (gameOver) {
+                showEndGameModal(gameWon, savedGameState.guesses);
+            }
+            restoreSuccess = true;
+            console.log("initializeGame Adım 6: Kaydedilmiş oyun başarıyla yüklendi.");
         }
-        restoreSuccess = true;
+    } else {
+         console.log("initializeGame Adım 6: Kayıtlı oyun bulunamadı veya eşleşmiyor.");
     }
 
     if (!restoreSuccess) {
-        console.log(`Yeni ${currentWordLength} harfli oyun başlatılıyor.`);
-        targetWord = selectWordOfTheDay(null);
-        if (!targetWord) {
-             console.error("Oyun başlatılamadı: Hedef kelime seçilemedi.");
+        console.log(`initializeGame Adım 7: Yeni ${currentWordLength} harfli oyun başlatılıyor.`);
+        const selectedOriginalWord = selectWordOfTheDay(currentWordLength, null); // currentWordLength'i parametre olarak gönder
+        
+        if (!selectedOriginalWord || !encodedTargetWord) {
+             console.error("initializeGame HATA: Yeni oyun için hedef kelime seçilemedi veya kodlanamadı.");
              if (wordLengthDisplay) wordLengthDisplay.textContent = "Hata!";
              if (totalWordsDisplay) totalWordsDisplay.textContent = `Sözlük: ${dictionary.length} | Hata!`;
              if (initialSetupScreen) initialSetupScreen.style.display = 'flex';
              if (gameArea) gameArea.style.display = 'none';
              return;
         }
-        console.log("Günün Kelimesi:", targetWord, "(Uzunluk:", currentWordLength, ")");
+        // targetWord ve encodedTargetWord selectWordOfTheDay içinde ayarlandı.
+        console.log("initializeGame (new) - Kodlanmış Kelime:", encodedTargetWord);
+        
         createGrid(); createKeyboard();
+        // Klavyeyi temizle
         document.querySelectorAll('.key').forEach(key => {
             key.classList.remove('absent', 'present', 'correct');
             delete key.dataset.status;
         });
+        console.log("initializeGame Adım 7: Yeni oyun başarıyla kuruldu.");
     }
 
-    if (initialSetupScreen) initialSetupScreen.style.display = 'none';
-    if (gameArea) gameArea.style.display = 'flex';
-    console.log("Oyun arayüzü kuruldu ve gösteriliyor.");
+    // Sadece oyun başarıyla kurulduysa (targetWord ve encodedTargetWord varsa) arayüzü değiştir
+    if (targetWord && encodedTargetWord) {
+        if (initialSetupScreen) initialSetupScreen.style.display = 'none';
+        if (gameArea) gameArea.style.display = 'flex';
+        console.log(">>> initializeGame BAŞARILI: Oyun arayüzü kuruldu ve gösteriliyor.");
+    } else {
+        console.error(">>> initializeGame BAŞARISIZ: Oyun başlatılamadı, targetWord veya encodedTargetWord eksik.");
+        showMessage("Oyun başlatılırken kritik bir hata oluştu. Lütfen tekrar deneyin.", 4000, true);
+        if (initialSetupScreen) initialSetupScreen.style.display = 'flex';
+        if (gameArea) gameArea.style.display = 'none';
+    }
 }
+
 
 function closeEndGameModalAndGoToSelection() {
     if (endGameModal) endGameModal.style.display = "none";
     if (initialSetupScreen) initialSetupScreen.style.display = 'flex';
     if (gameArea) gameArea.style.display = 'none';
-    selectedGameLength = 0;
+    selectedGameLength = 0; // Seçimi sıfırla
     document.querySelectorAll('.length-options button.selected').forEach(btn => btn.classList.remove('selected'));
-    if (startSelectedLengthGameBtn) startSelectedLengthGameBtn.disabled = true;
+    if (startSelectedLengthGameBtn) startSelectedLengthGameBtn.disabled = true; // Başlat butonu pasif
 
     if (totalWordsDisplay) {
         if (dictionary.length > 0) {
@@ -543,13 +645,16 @@ function closeEndGameModalAndGoToSelection() {
             totalWordsDisplay.textContent = "Sözlük yükleniyor veya yüklenemedi.";
         }
     }
-    if (wordLengthDisplay) wordLengthDisplay.textContent = "X Harfli Kelime";
+    if (wordLengthDisplay) wordLengthDisplay.textContent = "X Harfli Kelime"; // Varsayılana döndür
     console.log("Uzunluk seçme ekranına dönüldü.");
 }
 
+
+// --- Uygulamayı Başlat ---
 document.addEventListener('DOMContentLoaded', () => {
     console.log("DOMContentLoaded olayı tetiklendi.");
 
+    // DOM elementlerini burada global değişkenlere ata
     initialSetupScreen = document.getElementById('initial-setup-screen');
     lengthOptionsContainer = document.querySelector('.length-options');
     startSelectedLengthGameBtn = document.getElementById('start-selected-length-game-btn');
@@ -567,15 +672,20 @@ document.addEventListener('DOMContentLoaded', () => {
     totalWordsDisplay = document.getElementById("total-words-display");
 
     if (startSelectedLengthGameBtn) {
-        startSelectedLengthGameBtn.disabled = true;
+        startSelectedLengthGameBtn.disabled = true; // Başlangıçta pasif
         startSelectedLengthGameBtn.addEventListener('click', () => {
+            console.log("EVENT: 'Bu Uzunlukla Başla' butonuna tıklandı. selectedGameLength:", selectedGameLength, "Dictionary length:", dictionary.length);
             if (selectedGameLength > 0 && dictionary.length > 0) {
-                console.log("'" + startSelectedLengthGameBtn.textContent + "' butonuna tıklandı. Oyun başlatılıyor...");
+                console.log("EVENT: Koşullar sağlandı, initializeGame çağrılıyor...");
                 initializeGame();
             } else if (dictionary.length === 0) {
-                showMessage("Sözlük henüz yüklenmedi. Lütfen bekleyin.", 2500, true);
-            } else {
+                console.warn("EVENT: Sözlük yüklenmemiş veya boş.");
+                showMessage("Sözlük henüz yüklenmedi veya boş. Lütfen bekleyin.", 2500, true);
+            } else if (selectedGameLength <= 0) {
+                console.warn("EVENT: Kelime uzunluğu seçilmemiş.");
                 showMessage("Lütfen önce bir kelime uzunluğu seçin.", 2500, true);
+            } else {
+                console.warn("EVENT: Bilinmeyen durum, initializeGame çağrılmıyor.");
             }
         });
     }
@@ -591,19 +701,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!window.physicalKeyboardListenerAttached) {
         window.addEventListener("keydown", (e) => {
-            if (initialSetupScreen && initialSetupScreen.style.display === "flex") return;
-            if (endGameModal && endGameModal.style.display === "flex") return;
-            if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-            let pressedKey = e.key;
-            if (pressedKey === "Enter") { handleKeyPress("ENTER"); }
-            else if (pressedKey === "Backspace") { handleKeyPress("BACKSPACE"); }
-            else if (pressedKey.length === 1 && /^[a-zA-ZçÇğĞıİöÖşŞüÜ]$/.test(pressedKey)) {
-                handleKeyPress(turkishUpper(pressedKey));
-            }
+            handleKeyPress(e.key); // handleKeyPress içinde ekran kontrolü var
         });
         window.physicalKeyboardListenerAttached = true;
     }
 
-    loadDictionary();
+    loadDictionary(); // Sözlüğü yükle
 });
