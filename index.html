@@ -10,9 +10,18 @@
     <div class="game-container">
         <h1>Türkçe Wordle</h1>
 
-        <!-- Başlangıç Ekranı (Kelime Uzunluğu Seçimi) -->
-        <div id="initial-setup-screen">
-            <h2>Kelime Uzunluğunu Seçin:</h2>
+        <!-- Oyun Modu Seçim Ekranı -->
+        <div id="game-mode-selection-screen">
+            <h2>Oyun Modunu Seçin:</h2>
+            <div class="mode-options">
+                <button id="mode-classic-btn" data-mode="classic">Klasik Wordle (Sabit Uzunluk)</button>
+                <button id="mode-dynamic-btn" data-mode="dynamic">4-9 Oyunu (Dinamik Uzunluk)</button>
+            </div>
+        </div>
+
+        <!-- Klasik Wordle Başlangıç Ekranı (Kelime Uzunluğu Seçimi) -->
+        <div id="initial-setup-screen" style="display: none;">
+            <h2>Kelime Uzunluğunu Seçin (Klasik Mod):</h2>
             <div class="length-options">
                 <!-- JavaScript ile doldurulacak -->
             </div>
@@ -22,11 +31,13 @@
         <!-- Oyun Alanı (Başlangıçta Gizli) -->
         <div id="game-area" style="display: none;">
             <div id="game-info">
-                <h2 id="word-length-display">X Harfli Kelime</h2>
+                <h2 id="game-title-display">Oyun Başlığı</h2>
+                <p id="word-length-display">X Harfli Kelime</p> <!-- Dinamik modda bu farklı kullanılabilir -->
                 <p id="total-words-display">Sözlük Yükleniyor...</p>
             </div>
             <div class="grid-container">
                 <!-- JavaScript ile doldurulacak tahmin kutuları -->
+                <!-- Dinamik modda burası farklı işleyecek -->
             </div>
             <div id="message-popup" class="message-container">Mesaj</div>
             <div class="keyboard-container">
@@ -40,8 +51,10 @@
             <h2 id="modal-title">Oyun Bitti!</h2>
             <p id="modal-message">Mesajınız burada.</p>
             <p>Doğru Kelime: <strong id="modal-correct-word"></strong></p>
-            <button id="modal-new-game-btn">Yeni Oyun (Uzunluk Seç)</button>
-            <button id="modal-close-btn">Kapat</button>
+            <div class="button-group"> <!-- Butonları grupladım -->
+                <button id="modal-new-game-btn">Yeni Oyun (Mod Seç)</button>
+                <button id="modal-close-btn">Kapat</button>
+            </div>
         </div>
     </div>
 
